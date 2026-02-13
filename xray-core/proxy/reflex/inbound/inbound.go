@@ -5,13 +5,16 @@ import (
 	"context"
 
 	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/task"
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/proxy"
 	"github.com/xtls/xray-core/proxy/reflex"
 	"github.com/xtls/xray-core/proxy/reflex/codec"
 	"github.com/xtls/xray-core/proxy/reflex/handshake"
+	"github.com/xtls/xray-core/proxy/reflex/tunnel"
 	"github.com/xtls/xray-core/transport/internet/stat"
 )
 
@@ -58,24 +61,22 @@ func (h *Handler) Network() []net.Network {
 }
 
 func (h *Handler) Process(ctx context.Context, network net.Network, conn stat.Connection, dispatcher routing.Dispatcher) error {
-	_ = dispatcher
-
 	if network != net.Network_TCP {
 		_ = conn.Close()
 		return errors.New("reflex inbound: only supports TCP")
 	}
 
-	// Wrap connection for peek & parsing.
+	// IMPORTANT:
+	// We must keep using this bufio.Reader after handshake,
+	// otherwise any buffered bytes (already read from conn) will be lost.
 	reader := bufio.NewReader(conn)
 
-	// Peek helps us decide if it "looks like" HTTP for error responses.
 	peeked, _ := reader.Peek(64)
 	looksHTTP := codec.LooksLikeHTTPPost(peeked)
 
-	// Run Step2 handshake (magic or HTTP-like).
-	_, err := h.engine.ServerDoHandshake(reader, conn)
+	// --- Step2: Handshake ---
+	info, err := h.engine.ServerDoHandshake(reader, conn)
 	if err != nil {
-		// If it's HTTP-like, try to respond with a normal-looking HTTP error.
 		if looksHTTP {
 			switch {
 			case handshake.IsKind(err, handshake.KindUnauthenticated),
@@ -84,19 +85,62 @@ func (h *Handler) Process(ctx context.Context, network net.Network, conn stat.Co
 			case handshake.IsKind(err, handshake.KindInvalidHandshake):
 				_ = reflex.WriteHTTPBadRequest(conn)
 			default:
-				// Minimal 500-like response (avoid leaking details).
 				_, _ = conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n"))
 			}
 		}
-
 		_ = conn.Close()
-
-		// For Step2 we keep logs clean: return an info-level error.
 		return errors.New("reflex inbound: handshake failed").Base(err).AtInfo()
 	}
+	defer conn.Close()
 
-	// Step2 success: handshake completed and response sent.
-	// Step3 will keep the connection and start encrypted transport.
-	_ = conn.Close()
+	// --- Step3: Encrypted transport + dispatch ---
+	sess, err := tunnel.NewSession(info.SessionKey[:])
+	if err != nil {
+		return errors.New("reflex inbound: session init failed").Base(err)
+	}
+
+	// 1) Read destination from the first DATA frame.
+	dc := tunnel.SocksAddrCodec{}
+	dest, initialPayload, err := tunnel.ReadInitialDestination(sess, reader, dc)
+	if err != nil {
+		return errors.New("reflex inbound: failed to read destination").Base(err).AtInfo()
+	}
+
+	// 2) Dispatch to outbound.
+	link, err := dispatcher.Dispatch(ctx, dest)
+	if err != nil {
+		return errors.New("reflex inbound: failed to dispatch to ", dest).Base(err)
+	}
+
+	// If the first DATA frame carried extra payload after the destination header,
+	// forward it to outbound before starting the bidirectional copy.
+	if len(initialPayload) > 0 {
+		if err := link.Writer.WriteMultiBuffer(buf.MergeBytes(nil, initialPayload)); err != nil {
+			common.Must(common.Interrupt(link.Reader))
+			common.Must(common.Interrupt(link.Writer))
+			return errors.New("reflex inbound: failed to write initial payload").Base(err)
+		}
+	}
+
+	// 3) Bidirectional piping.
+	// Client -> Outbound: encrypted frames -> link.Writer
+	requestDone := func() error {
+		return tunnel.CopyFromEncryptedConn(sess, reader, link.Writer)
+	}
+
+	// Outbound -> Client: link.Reader -> encrypted frames
+	responseDone := func() error {
+		return tunnel.CopyToEncryptedConn(sess, conn, link.Reader)
+	}
+
+	requestDonePost := task.OnSuccess(requestDone, task.Close(link.Writer))
+	responseDonePost := task.OnSuccess(responseDone, func() error { return tunnel.WriteClose(sess, conn) })
+
+	if err := task.Run(ctx, requestDonePost, responseDonePost); err != nil {
+		common.Must(common.Interrupt(link.Reader))
+		common.Must(common.Interrupt(link.Writer))
+		return errors.New("reflex inbound: connection ends").Base(err)
+	}
+
 	return nil
 }
