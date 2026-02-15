@@ -38,7 +38,8 @@ type httpBody struct {
 // { "data": "<base64 payload>" }
 //
 // The payload is the canonical binary client handshake WITHOUT magic:
-//   pubkey(32) | userid(16) | timestamp(8) | nonce(16) | policyLen(2) | policyReq(policyLen)
+//
+//	pubkey(32) | userid(16) | timestamp(8) | nonce(16) | policyLen(2) | policyReq(policyLen)
 func ReadHTTPClientHandshake(r *bufio.Reader) (*handshake.ClientHandshake, error) {
 	if r == nil {
 		return nil, handshake.New(handshake.KindInternal, "nil reader")
@@ -54,14 +55,16 @@ func ReadHTTPClientHandshake(r *bufio.Reader) (*handshake.ClientHandshake, error
 	if err != nil {
 		return nil, err
 	}
+
 	if method != "POST" {
-		return nil, handshake.New(handshake.KindNotReflex, "not a POST request")
+		return nil, handshake.New(handshake.KindInvalidHandshake, "method not POST")
 	}
 
 	cl, ok := headers["content-length"]
 	if !ok {
-		return nil, handshake.New(handshake.KindNotReflex, "missing content-length")
+		return nil, handshake.New(handshake.KindInvalidHandshake, "missing content-length")
 	}
+
 	n, err := strconv.Atoi(cl)
 	if err != nil || n < 0 {
 		return nil, handshake.New(handshake.KindInvalidHandshake, "invalid content-length")
@@ -76,11 +79,12 @@ func ReadHTTPClientHandshake(r *bufio.Reader) (*handshake.ClientHandshake, error
 	}
 
 	var hb httpBody
+
 	if err := json.Unmarshal(body, &hb); err != nil {
-		return nil, handshake.Wrap(handshake.KindNotReflex, "invalid json body", err)
+		return nil, handshake.Wrap(handshake.KindInvalidHandshake, "invalid json body", err)
 	}
 	if strings.TrimSpace(hb.Data) == "" {
-		return nil, handshake.New(handshake.KindNotReflex, "missing data field")
+		return nil, handshake.New(handshake.KindInvalidHandshake, "missing data field")
 	}
 
 	payload, err := decodeBase64Any(hb.Data)
@@ -151,7 +155,8 @@ func WriteHTTPClientHandshake(w io.Writer, hs *handshake.ClientHandshake, opt HT
 // { "data": "<base64 payload>" }
 //
 // Payload is canonical server handshake:
-//   pubkey(32) | grantLen(2) | policyGrant(grantLen)
+//
+//	pubkey(32) | grantLen(2) | policyGrant(grantLen)
 func ReadHTTPServerHandshake(r *bufio.Reader) (*handshake.ServerHandshake, error) {
 	if r == nil {
 		return nil, handshake.New(handshake.KindInternal, "nil reader")
@@ -257,7 +262,7 @@ func readHTTPHeaders(r *bufio.Reader, max int) ([]byte, error) {
 	for n < max {
 		b, err := r.ReadByte()
 		if err != nil {
-			return nil, handshake.Wrap(handshake.KindNotReflex, "read http header", err)
+			return nil, handshake.Wrap(handshake.KindInvalidHandshake, "read http header", err)
 		}
 		_ = buf.WriteByte(b)
 
@@ -275,13 +280,13 @@ func parseHTTPHeaders(headerBytes []byte) (method, path, version string, headers
 	s := string(headerBytes)
 	lines := strings.Split(s, "\r\n")
 	if len(lines) < 2 {
-		return "", "", "", nil, handshake.New(handshake.KindNotReflex, "not http-like")
+		return "", "", "", nil, handshake.New(handshake.KindInvalidHandshake, "not http-like")
 	}
 
 	// Request line: METHOD SP PATH SP HTTP/1.1
 	parts := strings.Split(lines[0], " ")
 	if len(parts) < 3 {
-		return "", "", "", nil, handshake.New(handshake.KindNotReflex, "invalid request line")
+		return "", "", "", nil, handshake.New(handshake.KindInvalidHandshake, "invalid request line")
 	}
 	method = strings.ToUpper(strings.TrimSpace(parts[0]))
 	path = strings.TrimSpace(parts[1])

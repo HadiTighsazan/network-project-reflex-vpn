@@ -2,21 +2,44 @@ package codec
 
 import "bytes"
 
-// LooksLikeHTTPPost returns true if peeked bytes resemble an HTTP POST request.
-// We keep it intentionally conservative: if unsure, return false so fallback can handle.
+const reflexHTTPPath = "/api/v1/endpoint"
+
+// LooksLikeHTTPPost returns true ONLY if peeked bytes resemble Reflex's HTTP-like handshake.
+// It is intentionally conservative: if unsure, return false so Step4 fallback can handle.
+// We do NOT want to match generic HTTP POSTs, otherwise we may consume bytes and break fallback.
 func LooksLikeHTTPPost(peeked []byte) bool {
-	// Typical start: "POST /..."
-	if len(peeked) < 5 {
+	// Must start with "POST "
+	if len(peeked) < len("POST ")+1 {
 		return false
 	}
 	if !bytes.HasPrefix(peeked, []byte("POST ")) {
 		return false
 	}
 
-	// Extra hint: must contain "HTTP/1." somewhere in the first ~64 bytes.
-	// (We avoid heavy parsing here.)
-	if bytes.Contains(peeked, []byte("HTTP/1.")) {
-		return true
+	// We only peek a small prefix; parse the request line from it.
+	// Request line example:
+	// POST /api/v1/endpoint HTTP/1.1\r\n
+	lineEnd := bytes.Index(peeked, []byte("\r\n"))
+	if lineEnd < 0 {
+		return false
 	}
-	return false
+	line := peeked[:lineEnd]
+
+	// Extract path: after "POST " until next space.
+	rest := line[len("POST "):]
+	sp := bytes.IndexByte(rest, ' ')
+	if sp <= 0 {
+		return false
+	}
+	path := rest[:sp]
+	if !bytes.Equal(path, []byte(reflexHTTPPath)) {
+		return false
+	}
+
+	// Must mention HTTP/1.x in request line.
+	if !bytes.Contains(rest[sp+1:], []byte("HTTP/1.")) {
+		return false
+	}
+
+	return true
 }

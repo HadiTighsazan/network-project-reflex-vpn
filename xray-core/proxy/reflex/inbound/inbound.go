@@ -77,6 +77,11 @@ func (h *Handler) Process(ctx context.Context, network net.Network, conn stat.Co
 	// --- Step2: Handshake ---
 	info, err := h.engine.ServerDoHandshake(reader, conn)
 	if err != nil {
+
+		if handshake.IsKind(err, handshake.KindNotReflex) {
+			return h.handleFallback(ctx, reader, conn)
+		}
+
 		if looksHTTP {
 			switch {
 			case handshake.IsKind(err, handshake.KindUnauthenticated),

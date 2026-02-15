@@ -5,7 +5,8 @@ import (
 )
 
 // ErrKind categorizes handshake errors so callers can decide how to react.
-// For example, KindNotReflex should typically trigger fallback (Step4),
+// For example, KindNotReflex should typically trigger fallback (Step4) ONLY when it is safe,
+// i.e., when the caller has NOT consumed bytes from the connection yet (Peek-based detection).
 // while KindUnauthenticated should reply with a normal-looking 403 and close.
 type ErrKind uint8
 
