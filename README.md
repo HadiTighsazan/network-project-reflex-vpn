@@ -34,10 +34,13 @@ We studied how:
 	•	Inbound and outbound connections are processed
 
 How to Run the Project
-	1.	Navigate to the xray-core directory
-    cd xray-core
-    2.	Build the project
-    3.	Run the binary with a configuration file
+0) Go to the project folder + build Xray
+1) Pick ONE UUID (must match on server + client)
+2) Create the SERVER config (Reflex inbound)
+3) Run the SERVER
+4) Create the CLIENT config (SOCKS inbound + Reflex outbound)
+5) Run the CLIENT
+6) Test that it works
 
 
 Make sure the configuration file is properly defined for the Reflex protocol if you are testing it.
