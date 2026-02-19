@@ -1,57 +1,67 @@
-# پروژه Reflex -
+Reflex Project 
+contributors:
+hadi tighsazan-402107033
+maryam mehdizade-402100526
 
-## چیه این پروژه؟
 
-پروژه Reflex یک پروتکل پراکسی جدید برای Xray-Core هست که سعی می‌کنه مشکلات پروتکل‌های قبلی مثل VMess و VLESS رو حل کنه. هدف اصلی اینه که ترافیک پراکسی رو غیرقابل تشخیص کنیم - یعنی سانسورچی نتونه بفهمه که این ترافیک پراکسی هست.
+Project Description
 
-## چیکار باید بکنید؟
+In this project, We worked with the Xray-Core codebase and studied its internal architecture. Xray-Core is a modular proxy platform written in Go that supports multiple protocols such as VMess, VLESS, Trojan, Shadowsocks, SOCKS, HTTP, WireGuard, and others.
 
-شما باید پروتکل Reflex رو در Xray-Core پیاده‌سازی کنید. این کار در چند مرحله انجام می‌شه:
 
-1. **مرحله 1**: ساختار اولیه پروتکل (پکیج، config، handler اولیه)
-2. **مرحله 2**: پیاده‌سازی handshake و احراز هویت
-3. **مرحله 3**: رمزنگاری و پردازش بسته‌ها
-4. **مرحله 4**: fallback به وب‌سرور (مثل Trojan)
-5. **مرحله 5**: قابلیت‌های پیشرفته (Traffic Morphing و ...)
+Code Structure Overview
 
-## چطوری شروع کنید؟
+We analyzed the following main components:
+	•	core/ – Contains the main engine of Xray, configuration loading, and runtime management.
+	•	proxy/ – Includes protocol implementations such as VMess, VLESS, Trojan, Shadowsocks, and Reflex.
+	•	proxy/reflex/ – Contains the Reflex protocol implementation, including:
+	•	handshake logic
+	•	codec (packet detection and formatting)
+	•	tunnel and session management
+	•	inbound and outbound handlers
+	•	crypto policy and replay protection
+	•	transport/ – Manages network transport layers (TCP, WebSocket, gRPC, TLS, Reality, etc.).
+	•	common/ – Utility functions such as cryptography, buffers, protocol helpers, and error handling.
+	•	app/ – Application-level services like routing, DNS, logging, policy, stats, and dispatcher.
+	•	main/ – Entry point of the program and command-line handling.
 
-1. اول [راه‌اندازی محیط](docs/setup.md) رو بخونید و Go و Git رو نصب کنید
-2. ریپو Reflex رو کلون کنید (که شامل Xray-Core هست) و بیلد اولیه رو تست کنید
-3. [پروتکل Reflex](docs/protocol.md) رو بخونید تا بفهمید چطوری کار می‌کنه
-4. مرحله به مرحله پیش برید: [Step 1](docs/step1-basic.md) → [Step 2](docs/step2-handshake.md) → [Step 3](docs/step3-encryption.md) → [Step 4](docs/step4-fallback.md) → [Step 5](docs/step5-advanced.md)
-5. [تست کنید](docs/testing.md) که همه چیز درست کار می‌کنه
-6. [تحویل بدید](docs/submission.md) - یک برنچ بسازید و PR بزنید
+We focused especially on the Reflex implementation inside:
+proxy/reflex/
+We studied how:
+	•	The handshake is performed
+	•	Encryption and replay protection are handled
+	•	Sessions and tunnels are established
+	•	Inbound and outbound connections are processed
 
-## نمره‌دهی (120 نمره)
+How to Run the Project
+	1.	Navigate to the xray-core directory
+    cd xray-core
+    2.	Build the project
+    3.	Run the binary with a configuration file
 
-### پیاده‌سازی (80 نمره)
-- **Step 1 - Basic Structure**: 10 نمره
-- **Step 2 - Handshake**: 15 نمره
-- **Step 3 - Encryption**: 15 نمره
-- **Step 4 - Fallback**: 15 نمره
-- **Step 5 - Advanced**: 20 نمره (15 نمره اجباری + 5 نمره امتیازی)
 
-### تست‌ها (20 نمره)
-- تست‌های واحد: 10 نمره
-- تست‌های یکپارچگی: 10 نمره
+Make sure the configuration file is properly defined for the Reflex protocol if you are testing it.
 
-### کد و مستندات (20 نمره)
-- کیفیت کد و خوانایی: 10 نمره
-- مستندات و کامنت‌ها: 10 نمره
+Problems and Solutions
 
-جزئیات بیشتر در [فایل تحویل](docs/submission.md) هست.
+1. Build Errors (GOPATH / Environment Issues)
 
-## منابع
+Problem:
+I encountered errors related to GOPATH and Go environment variables.
 
-- [Xray-Core Repository](https://github.com/XTLS/Xray-core)
-- [Go Documentation](https://go.dev/doc/)
-- [Protocol Specification](docs/protocol.md)
+Solution:
+I checked the Go environment, Then I corrected the PATH and GOPATH configuration to ensure Go could properly resolve dependencies.
 
-## سوال دارید؟
+2. Dependency and Module Issues
 
-اگر مشکلی پیش اومد یا سوالی دارید، اول [FAQ](docs/FAQ.md) رو چک کنید. اگر جوابتون رو پیدا نکردید، از من بپرسید
----
+Problem:
+Some modules were not resolving correctly during the build process.
 
-**موفق باشید!** 
+Solution:
+I used:go mod tidy
+to clean and download the required dependencies.
 
+3. Understanding Reflex Architecture
+
+Problem:
+The Reflex protocol implementation is spread across multiple folders (handshake, codec, tunnel, inbound, outbound). It was initially difficult to understand how all parts connect together.
